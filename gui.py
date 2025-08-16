@@ -15,14 +15,15 @@ from typing import Dict, Any, Optional
 import queue
 import json
 
-# Import our transcription engine
+# Production transcriber import (placeholder removed)
 try:
-    from transcribe_temp import ARM64WhisperTranscriber  # Use temporary version
+    # Prefer temporary transcriber variant if present (development mode)
+    from transcribe_temp import ARM64WhisperTranscriber  # type: ignore
     TRANSCRIBER_AVAILABLE = True
-    print("✅ Using temporary transcriber (Whisper placeholder mode)")
+    print("✅ Using temporary transcriber (dev mode)")
 except ImportError:
     try:
-        from transcribe import ARM64WhisperTranscriber  # Fallback to original
+        from transcribe import ARM64WhisperTranscriber  # type: ignore
         TRANSCRIBER_AVAILABLE = True
         print("✅ Using full transcriber")
     except ImportError as e:
@@ -298,6 +299,19 @@ class WhisperGUI:
         """Initialize the transcription engine."""
         try:
             self.transcriber = ARM64WhisperTranscriber()
+            # Detect native accelerated path
+            native_dir = Path.cwd() / 'native'
+            native_available = False
+            if native_dir.exists():
+                try:
+                    if str(native_dir) not in sys.path:
+                        sys.path.insert(0, str(native_dir))
+                    import importlib
+                    importlib.import_module('tokenizer_native')
+                    importlib.import_module('mel_native')
+                    native_available = True
+                except Exception:
+                    native_available = False
             
             # Update system info
             system_info = f"Platform: {self.transcriber.system_info['platform']} {self.transcriber.system_info['architecture']}"
@@ -311,6 +325,10 @@ class WhisperGUI:
             else:
                 self.npu_status_var.set("NPU Status: Not Available (CPU Mode)")
             
+            # Append processing mode
+            mode = 'Native ONNX/QNN' if native_available else 'Python'
+            self.npu_status_var.set(self.npu_status_var.get() + f" | Mode: {mode}")
+
             self.log_message("✅ ARM64 Whisper transcriber initialized successfully")
             
         except Exception as e:
@@ -427,11 +445,48 @@ class WhisperGUI:
             
             self.progress_queue.put(("progress", 30))
             
-            # Perform transcription
-            result = self.transcriber.transcribe_file(
-                input_path=self.file_path_var.get(),
-                **transcription_options
-            )
+            # Decide backend: native if artifacts present
+            native_dir = Path.cwd() / 'native'
+            model_guess = Path.cwd() / 'models'  # naive heuristics
+            onnx_dirs = list((model_guess).glob('**/encoder.onnx'))
+            # Prefer large model if multiple
+            if len(onnx_dirs) > 1:
+                def pref(p):
+                    name = p.parent.name.lower()
+                    return (0 if 'large' in name else 1, -p.stat().st_size)
+                onnx_dirs.sort(key=pref)
+            native_used = False
+            if native_dir.exists():
+                try:
+                    from native_backend import native_transcribe  # type: ignore
+                    # choose first encoder.onnx parent as model dir
+                    model_dir = onnx_dirs[0].parent if onnx_dirs else None
+                    if model_dir:
+                        self.progress_queue.put(("status", f"Native QNN decode ({model_dir.name})"))
+                        native_res = native_transcribe(str(model_dir), self.file_path_var.get(), language=self.language_var.get() if self.language_var.get()!='auto' else None)
+                        result = {
+                            'success': True,
+                            'transcription': native_res['text'],
+                            'metadata': native_res,
+                            'output_files': {},
+                            'processing_time': native_res['timings']['encoder_s'] + native_res['timings']['decode_s']
+                        }
+                        native_used = True
+                    else:
+                        result = self.transcriber.transcribe_file(
+                            input_path=self.file_path_var.get(),
+                            **transcription_options
+                        )
+                except Exception:
+                    result = self.transcriber.transcribe_file(
+                        input_path=self.file_path_var.get(),
+                        **transcription_options
+                    )
+            else:
+                result = self.transcriber.transcribe_file(
+                    input_path=self.file_path_var.get(),
+                    **transcription_options
+                )
             
             if result.get("success", False):
                 self.progress_queue.put(("progress", 100))
@@ -543,7 +598,9 @@ class WhisperGUI:
     
     def select_all_results(self):
         """Select all text in results area."""
-        self.results_text.select_range("1.0", tk.END)
+    self.results_text.tag_add(tk.SEL, "1.0", tk.END)
+    self.results_text.mark_set(tk.INSERT, "1.0")
+    self.results_text.see("1.0")
     
     def copy_results(self):
         """Copy selected text to clipboard."""

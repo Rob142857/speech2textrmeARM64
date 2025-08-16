@@ -18,21 +18,22 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# Import core libraries
 try:
-    # Temporarily disable Whisper imports until compilation issues are resolved
-    # import whisper
-    # import torch
-    # import numpy as np
-    from audio_processor import AudioProcessor
-    # from whisper_npu import WhisperNPU
-    from document_generator import DocumentGenerator
+    import whisper  # type: ignore
+    import torch  # type: ignore
+    WHISPER_AVAILABLE = True
+except Exception as e:
+    print(f"⚠️ Whisper PyTorch unavailable: {e}")
     WHISPER_AVAILABLE = False
-    print("⚠️ Warning: Whisper not available, using placeholder functionality")
-except ImportError as e:
-    print(f"❌ Import error: {e}")
-    print("📦 Please install requirements: pip install -r requirements.txt")
-    sys.exit(1)
+
+from audio_processor import AudioProcessor
+from whisper_npu import WhisperNPU
+from document_generator import DocumentGenerator
+try:
+    from onnx_qnn_transcriber import OnnxWhisperQNN  # local ONNX/QNN backend
+    ONNX_QNN_AVAILABLE = True
+except Exception:
+    ONNX_QNN_AVAILABLE = False
 
 
 class ARM64WhisperTranscriber:
@@ -41,56 +42,69 @@ class ARM64WhisperTranscriber:
     with NPU acceleration via Qualcomm Snapdragon X Elite QNN Provider.
     """
     
-    def __init__(self, model_name: str = "large", use_npu: bool = True, output_dir: str = "output"):
-        """
-        Initialize the ARM64 Whisper transcription engine.
-        
-        Args:
-            model_name: Whisper model size ('tiny', 'base', 'small', 'medium', 'large')
-            use_npu: Whether to attempt NPU acceleration
-            output_dir: Directory for output files
-        """
+    def __init__(self, model_name: str = "large", use_npu: bool = True, output_dir: str = "output", onnx_dir: Optional[str] = None, language: Optional[str] = None):
+        """Initialize the transcription engine and prepare available backends."""
         self.model_name = model_name
         self.use_npu = use_npu
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # System information
+        self.onnx_dir = onnx_dir
+        self.language = language
+
+        # Basic system info
         self.system_info = {
             "platform": platform.system(),
             "architecture": platform.machine(),
             "python_version": platform.python_version(),
-            "is_arm64": platform.machine() == 'ARM64'
+            "is_arm64": platform.machine().upper() == 'ARM64'
         }
-        
-        print(f"🚀 ARM64 Whisper Transcriber Initializing...")
+
+        print("🚀 ARM64 Whisper Transcriber Initializing...")
         print(f"📱 Platform: {self.system_info['platform']} {self.system_info['architecture']}")
         print(f"🐍 Python: {self.system_info['python_version']}")
-        
-        # Initialize components
+
+        # Core components
         self.audio_processor = AudioProcessor()
-        # self.whisper_npu = WhisperNPU(use_npu=use_npu) if use_npu else None
-        self.whisper_npu = None  # Temporarily disabled until compilation issues resolved
+        self.whisper_npu = WhisperNPU(use_npu=use_npu) if use_npu else None
         self.document_generator = DocumentGenerator()
-        
-        # Load Whisper model (temporarily disabled)
-        # self.model = self._load_whisper_model()
-        self.model = None  # Placeholder until Whisper is available
-        
-        # NPU status
-        # if self.whisper_npu and self.whisper_npu.is_npu_available:
-        #     print(f"🧠 NPU Status: Available (QNN Provider)")
-        print(f"⚠️ NPU Status: Disabled (Whisper not available)")
-        print(f"💻 Processing Mode: Placeholder (needs Whisper compilation)")
-            print(f"⚠️  NPU acceleration unavailable")
+        self.onnx_qnn = None  # type: ignore
+        self.model = None
+
+        # Try ONNX/QNN first if user supplied directory and backend import succeeded
+        if self.onnx_dir and ONNX_QNN_AVAILABLE:
+            try:
+                print(f"📦 Initializing ONNX/QNN backend from {self.onnx_dir} ...")
+                self.onnx_qnn = OnnxWhisperQNN(self.onnx_dir, language=self.language or None)  # type: ignore
+                print(f"✅ ONNX/QNN providers: {self.onnx_qnn.providers_used}")  # type: ignore[attr-defined]
+            except Exception as e:
+                print(f"❌ ONNX/QNN init failed: {e}")
+                self.onnx_qnn = None
+
+        # Fallback to PyTorch if whisper available and ONNX path not active
+        if WHISPER_AVAILABLE and not self.onnx_qnn:
+            try:
+                self.model = self._load_whisper_model()
+            except Exception as e:
+                print(f"❌ Whisper model load failed: {e}")
+                self.model = None
+
+        # Status summary
+        if self.whisper_npu and getattr(self.whisper_npu, 'is_npu_available', False):
+            print("🧠 NPU Status: Available (QNN Provider)")
+        else:
+            print("⚠️ NPU Status: Not Available (CPU fallback)")
+        mode = "ONNX/QNN" if self.onnx_qnn else ("PyTorch" if self.model else "NONE")
+        print(f"💻 Processing Mode: {mode}")
     
-    def _load_whisper_model(self) -> whisper.Whisper:
+    def _load_whisper_model(self) -> "whisper.Whisper":
         """Load and optimize Whisper model for ARM64."""
         print(f"📥 Loading Whisper model: {self.model_name}")
         
         try:
+            if not WHISPER_AVAILABLE:
+                raise RuntimeError("whisper package not available")
             # Load model with ARM64 optimizations
-            model = whisper.load_model(
+            model = whisper.load_model(  # type: ignore[name-defined]
                 self.model_name,
                 device="cpu"  # We'll handle NPU acceleration separately
             )
@@ -99,8 +113,12 @@ class ARM64WhisperTranscriber:
             if self.system_info["is_arm64"]:
                 print("🔧 Applying ARM64 optimizations...")
                 # Enable ARM64 NEON optimizations if available
-                if hasattr(torch.backends, 'cpu') and hasattr(torch.backends.cpu, 'enable_neon'):
-                    torch.backends.cpu.enable_neon = True
+                if 'torch' in globals():  # type: ignore
+                    try:
+                        if hasattr(torch.backends, 'cpu') and hasattr(torch.backends.cpu, 'enable_neon'):  # type: ignore[name-defined]
+                            torch.backends.cpu.enable_neon = True  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
             
             print(f"✅ Model loaded successfully: {self.model_name}")
             return model
@@ -155,8 +173,8 @@ class ARM64WhisperTranscriber:
         if not processed_audio_path:
             raise RuntimeError("Audio processing failed")
         
-        # Step 2: Transcription with NPU acceleration
-        print(f"🧠 Running Whisper transcription...")
+        # Step 2: Transcription backend selection
+        print(f"🧠 Running transcription backend...")
         
         transcription_options = {
             "language": language,
@@ -168,19 +186,18 @@ class ARM64WhisperTranscriber:
         }
         
         # Use NPU-accelerated transcription if available
-        if self.whisper_npu and self.whisper_npu.is_npu_available:
-            print("⚡ Using NPU acceleration...")
-            result = self.whisper_npu.transcribe(
-                processed_audio_path,
-                self.model,
-                **transcription_options
-            )
+        if self.onnx_qnn:
+            print("⚡ ONNX/QNN greedy decode...")
+            result = self.onnx_qnn.transcribe(processed_audio_path)
+        elif self.model is not None:
+            if self.whisper_npu and self.whisper_npu.is_npu_available:
+                print("⚡ PyTorch Whisper with NPU optimizations (simulated)...")
+                result = self.whisper_npu.transcribe(processed_audio_path, self.model, **transcription_options)
+            else:
+                print("💻 PyTorch Whisper CPU mode...")
+                result = self.model.transcribe(processed_audio_path, **transcription_options)
         else:
-            print("💻 Using CPU processing...")
-            result = self.model.transcribe(
-                processed_audio_path,
-                **transcription_options
-            )
+            raise RuntimeError("No transcription backend available (install whisper or provide --onnx-dir)")
         
         processing_time = time.time() - start_time
         
@@ -208,8 +225,11 @@ class ARM64WhisperTranscriber:
                 "source_file": str(input_path),
                 "model": self.model_name,
                 "processing_time": f"{processing_time:.2f} seconds",
-                "npu_used": self.whisper_npu.is_npu_available if self.whisper_npu else False,
-                "language": result.get("language", "auto-detected"),
+                "npu_used": (
+                    (self.whisper_npu.is_npu_available if self.whisper_npu else False) or
+                    (result.get("npu_used") if isinstance(result, dict) else False)
+                ),
+                "language": result.get("language", self.language or "auto"),
                 "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
             }
         )
@@ -221,11 +241,14 @@ class ARM64WhisperTranscriber:
             "output_files": output_files,
             "processing_time_seconds": processing_time,
             "model_used": self.model_name,
-            "npu_acceleration": self.whisper_npu.is_npu_available if self.whisper_npu else False,
+            "npu_acceleration": (
+                (self.whisper_npu.is_npu_available if self.whisper_npu else False) or
+                (result.get("npu_used") if isinstance(result, dict) else False)
+            ),
             "system_info": self.system_info,
             "transcription_options": transcription_options,
-            "detected_language": result.get("language", "unknown"),
-            "segments_count": len(result.get("segments", [])),
+            "detected_language": result.get("language", self.language or "unknown"),
+            "segments_count": len(result.get("segments", [])) if isinstance(result, dict) else 0,
             "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
         }
         
@@ -440,6 +463,13 @@ Examples:
         action="store_true",
         help="Print detailed progress information"
     )
+
+    parser.add_argument(
+        "--onnx-dir",
+        type=str,
+        default=None,
+        help="Directory containing ONNX encoder/decoder (enables native QNN path)"
+    )
     
     args = parser.parse_args()
     
@@ -448,7 +478,9 @@ Examples:
         transcriber = ARM64WhisperTranscriber(
             model_name=args.model,
             use_npu=not args.no_npu,
-            output_dir=args.output
+            output_dir=args.output,
+            onnx_dir=args.onnx_dir,
+            language=args.language
         )
         
         # Perform transcription

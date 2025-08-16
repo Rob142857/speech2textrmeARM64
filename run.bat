@@ -75,8 +75,10 @@ echo   [5] QNN / NPU Guide
 echo   [6] Convert Whisper -> ONNX
 echo   [7] Run ONNX QNN Demo
 echo   [8] Exit
+echo   [9] Build Native Rust Components
+echo   [10] Native QNN Transcribe (Rust tokenizer/mel)
 echo.
-set /p choice="Enter your choice (1-8): "
+set /p choice="Enter your choice (1-10): "
 
 if "%choice%"=="1" goto GUI
 if "%choice%"=="2" goto HELP
@@ -86,6 +88,8 @@ if "%choice%"=="5" goto QNN
 if "%choice%"=="6" goto CONVERT
 if "%choice%"=="7" goto RUNQNN
 if "%choice%"=="8" goto EXIT
+if "%choice%"=="9" goto BUILD_NATIVE
+if "%choice%"=="10" goto RUN_NATIVE_QNN
 echo Invalid choice. Please try again.
 goto MENU
 
@@ -157,6 +161,24 @@ python scripts\transcribe_qnn.py --model-dir %modeldir% --audio %audiofile%
 pause
 goto MENU
 
+:BUILD_NATIVE
+echo.
+echo 🔨 Building native Rust tokenizer + mel modules...
+call build_native.bat
+pause
+goto MENU
+
+:RUN_NATIVE_QNN
+echo.
+echo 🚀 Native QNN transcription (Rust tokenizer + mel)
+set /p modeldir="Model dir (e.g. models\whisper_large_v3_onnx): "
+set /p audiofile="Audio wav file: "
+if "%modeldir%"=="" goto MENU
+if "%audiofile%"=="" goto MENU
+python scripts\transcribe_qnn.py --model-dir %modeldir% --audio %audiofile%
+echo (NOTE: Update to transcribe_qnn_native.py once implemented)
+pause
+goto MENU
 :HELP
 echo.
 echo 📚 Command Line Usage:
