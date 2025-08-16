@@ -20,12 +20,15 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 # Import core libraries
 try:
-    import whisper
-    import torch
-    import numpy as np
+    # Temporarily disable Whisper imports until compilation issues are resolved
+    # import whisper
+    # import torch
+    # import numpy as np
     from audio_processor import AudioProcessor
-    from whisper_npu import WhisperNPU
+    # from whisper_npu import WhisperNPU
     from document_generator import DocumentGenerator
+    WHISPER_AVAILABLE = False
+    print("⚠️ Warning: Whisper not available, using placeholder functionality")
 except ImportError as e:
     print(f"❌ Import error: {e}")
     print("📦 Please install requirements: pip install -r requirements.txt")
@@ -38,7 +41,7 @@ class ARM64WhisperTranscriber:
     with NPU acceleration via Qualcomm Snapdragon X Elite QNN Provider.
     """
     
-    def __init__(self, model_name: str = "base", use_npu: bool = True, output_dir: str = "output"):
+    def __init__(self, model_name: str = "large", use_npu: bool = True, output_dir: str = "output"):
         """
         Initialize the ARM64 Whisper transcription engine.
         
@@ -66,18 +69,19 @@ class ARM64WhisperTranscriber:
         
         # Initialize components
         self.audio_processor = AudioProcessor()
-        self.whisper_npu = WhisperNPU(use_npu=use_npu) if use_npu else None
+        # self.whisper_npu = WhisperNPU(use_npu=use_npu) if use_npu else None
+        self.whisper_npu = None  # Temporarily disabled until compilation issues resolved
         self.document_generator = DocumentGenerator()
         
-        # Load Whisper model
-        self.model = self._load_whisper_model()
+        # Load Whisper model (temporarily disabled)
+        # self.model = self._load_whisper_model()
+        self.model = None  # Placeholder until Whisper is available
         
         # NPU status
-        if self.whisper_npu and self.whisper_npu.is_npu_available:
-            print(f"🧠 NPU Status: Available (QNN Provider)")
-            print(f"⚡ Acceleration: Enabled")
-        else:
-            print(f"💻 Processing Mode: CPU")
+        # if self.whisper_npu and self.whisper_npu.is_npu_available:
+        #     print(f"🧠 NPU Status: Available (QNN Provider)")
+        print(f"⚠️ NPU Status: Disabled (Whisper not available)")
+        print(f"💻 Processing Mode: Placeholder (needs Whisper compilation)")
             print(f"⚠️  NPU acceleration unavailable")
     
     def _load_whisper_model(self) -> whisper.Whisper:
@@ -254,49 +258,113 @@ class ARM64WhisperTranscriber:
     def _format_transcription(self, text: str) -> str:
         """
         Format transcription text with proper punctuation and paragraphing.
+        Enhanced formatting for professional documents.
         
         Args:
             text: Raw transcription text
             
         Returns:
-            Formatted text with proper structure
+            Formatted text with proper structure, punctuation, and paragraphs
         """
         if not text or not text.strip():
             return ""
         
-        # Basic cleanup
+        # Basic cleanup and normalization
         text = text.strip()
         
-        # Add paragraph breaks at natural pause points
-        # This is a simple heuristic - can be enhanced with NLP libraries
-        sentences = text.split('. ')
-        formatted_sentences = []
+        # Fix common transcription issues
+        text = text.replace(' um ', ' ')  # Remove filler words
+        text = text.replace(' uh ', ' ')
+        text = text.replace(' ah ', ' ')
+        text = text.replace('  ', ' ')  # Remove double spaces
         
-        for i, sentence in enumerate(sentences):
+        # Split into segments for better processing
+        # Whisper often provides natural sentence boundaries
+        sentences = []
+        
+        # Split on various sentence endings
+        import re
+        
+        # Split on sentence endings but preserve them
+        sentence_parts = re.split(r'([.!?]+)', text)
+        
+        current_sentence = ""
+        for i, part in enumerate(sentence_parts):
+            if re.match(r'^[.!?]+$', part):  # This is punctuation
+                current_sentence += part
+                sentences.append(current_sentence.strip())
+                current_sentence = ""
+            else:
+                current_sentence += part
+        
+        # Add any remaining text
+        if current_sentence.strip():
+            sentences.append(current_sentence.strip())
+        
+        # Clean and format sentences
+        formatted_sentences = []
+        for sentence in sentences:
             sentence = sentence.strip()
             if not sentence:
                 continue
                 
-            # Ensure sentence ends with proper punctuation
-            if i < len(sentences) - 1 and not sentence.endswith('.'):
-                sentence += '.'
-            
-            # Capitalize first word
+            # Capitalize first letter
             if sentence:
                 sentence = sentence[0].upper() + sentence[1:] if len(sentence) > 1 else sentence.upper()
             
+            # Ensure proper ending punctuation
+            if sentence and not re.search(r'[.!?]$', sentence):
+                sentence += '.'
+            
+            # Fix spacing around punctuation
+            sentence = re.sub(r'\s+([,.!?])', r'\1', sentence)  # Remove space before punctuation
+            sentence = re.sub(r'([.!?])([A-Za-z])', r'\1 \2', sentence)  # Add space after punctuation
+            
             formatted_sentences.append(sentence)
         
-        # Join sentences and add paragraph breaks
-        formatted_text = ' '.join(formatted_sentences)
+        # Create paragraphs based on natural breaks and length
+        paragraphs = []
+        current_paragraph = []
+        sentence_count = 0
         
-        # Add paragraph breaks at longer pauses (simple heuristic)
-        formatted_text = formatted_text.replace('. And ', '.\n\nAnd ')
-        formatted_text = formatted_text.replace('. So ', '.\n\nSo ')
-        formatted_text = formatted_text.replace('. But ', '.\n\nBut ')
-        formatted_text = formatted_text.replace('. Now ', '.\n\nNow ')
+        for sentence in formatted_sentences:
+            current_paragraph.append(sentence)
+            sentence_count += 1
+            
+            # Create paragraph breaks based on:
+            # 1. Natural conversation markers
+            # 2. Length (every 3-5 sentences)
+            # 3. Topic shift indicators
+            should_break = (
+                sentence_count >= 4 or  # Every 4 sentences
+                any(sentence.lower().startswith(marker) for marker in [
+                    'and then', 'so then', 'but then', 'now', 'after that', 
+                    'meanwhile', 'however', 'therefore', 'in addition',
+                    'furthermore', 'moreover', 'on the other hand'
+                ]) or
+                any(phrase in sentence.lower() for phrase in [
+                    'moving on', 'next topic', 'another thing', 'speaking of',
+                    'by the way', 'incidentally'
+                ])
+            )
+            
+            if should_break and current_paragraph:
+                paragraphs.append(' '.join(current_paragraph))
+                current_paragraph = []
+                sentence_count = 0
         
-        return formatted_text
+        # Add any remaining sentences
+        if current_paragraph:
+            paragraphs.append(' '.join(current_paragraph))
+        
+        # Join paragraphs with double line breaks
+        formatted_text = '\n\n'.join(paragraphs)
+        
+        # Final cleanup
+        formatted_text = re.sub(r'\n{3,}', '\n\n', formatted_text)  # Remove excessive line breaks
+        formatted_text = re.sub(r' {2,}', ' ', formatted_text)  # Remove excessive spaces
+        
+        return formatted_text.strip()
 
 
 def main():
@@ -322,9 +390,9 @@ Examples:
     parser.add_argument(
         "--model",
         type=str,
-        default="base",
+        default="large",
         choices=["tiny", "base", "small", "medium", "large"],
-        help="Whisper model size (default: base)"
+        help="Whisper model size (default: large)"
     )
     
     parser.add_argument(

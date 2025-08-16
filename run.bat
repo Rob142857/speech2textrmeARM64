@@ -2,6 +2,32 @@
 REM ARM64 Whisper Transcription Launcher
 REM Optimized for Windows ARM64 with NPU acceleration
 
+REM --- Short TEMP mitigation for Windows path length issues (onnxsim / deep build trees) ---
+if not exist C:\s2t_tmp mkdir C:\s2t_tmp >nul 2>&1
+set "TMP=C:\s2t_tmp"
+set "TEMP=C:\s2t_tmp"
+REM Warn if current path is long ( > 80 chars )
+set "CURP=%cd%"
+set /a LEN=0
+for /f "delims=":" tokens=1*" %%A in ('cmd /c echo %CURP%') do set "LINE=%%A"
+call :strlen LEN "%CURP%"
+if %LEN% GTR 80 (
+    echo ⚠️  Current path length %LEN% may cause pip build failures. Consider moving project to C:\s2t
+)
+
+goto :after_strlen_helper
+
+:strlen
+setlocal EnableDelayedExpansion
+set "s=%~2"
+set /a len=0
+:strlen_loop
+if defined s (if not "!s!"=="" (set "s=!s:~1!"& set /a len+=1 & goto strlen_loop))
+endlocal & set "%1=%len%"
+goto :eof
+
+:after_strlen_helper
+
 title ARM64 Whisper Transcription
 
 echo.
@@ -29,10 +55,10 @@ if not "%ARCH%"=="ARM64" (
     echo.
 )
 
-REM Check if setup has been run
-if not exist "whisper_npu.py" (
+REM Check if project files exist
+if not exist "gui.py" (
     echo ❌ Project files not found
-    echo Please run setup first: python setup.py
+    echo Please ensure you're in the correct directory
     pause
     exit /b 1
 )
@@ -41,19 +67,25 @@ REM Show menu
 :MENU
 echo Select an option:
 echo.
-echo   [1] Launch GUI Application
-echo   [2] Run Setup/Installation
-echo   [3] Test System (NPU check)
-echo   [4] Command Line Help
-echo   [5] Exit
+echo   [1] Launch GUI Application (Placeholder Mode)
+echo   [2] Command Line Help  
+echo   [3] Test Current Setup
+echo   [4] Install Dependencies (needs C++ compiler)
+echo   [5] QNN / NPU Guide
+echo   [6] Convert Whisper -> ONNX
+echo   [7] Run ONNX QNN Demo
+echo   [8] Exit
 echo.
-set /p choice="Enter your choice (1-5): "
+set /p choice="Enter your choice (1-8): "
 
 if "%choice%"=="1" goto GUI
-if "%choice%"=="2" goto SETUP
+if "%choice%"=="2" goto HELP
 if "%choice%"=="3" goto TEST
-if "%choice%"=="4" goto HELP
-if "%choice%"=="5" goto EXIT
+if "%choice%"=="4" goto SETUP
+if "%choice%"=="5" goto QNN
+if "%choice%"=="6" goto CONVERT
+if "%choice%"=="7" goto RUNQNN
+if "%choice%"=="8" goto EXIT
 echo Invalid choice. Please try again.
 goto MENU
 
@@ -89,6 +121,39 @@ echo.
 echo Whisper Test:
 python -c "try: import whisper; print('✅ OpenAI Whisper available'); except ImportError: print('❌ OpenAI Whisper not installed')"
 echo.
+pause
+goto MENU
+
+:QNN
+echo.
+echo 📘 Opening QNN / NPU guide...
+if exist "npu\README_QNN.md" (
+    start npu\README_QNN.md
+) else (
+    echo File missing: npu\README_QNN.md
+)
+pause
+goto MENU
+
+:CONVERT
+echo.
+echo 🔄 Convert Whisper model to ONNX (encoder/decoder)...
+set /p mdl="Model id (default openai/whisper-large-v3): "
+if "%mdl%"=="" set mdl=openai/whisper-large-v3
+set /p outdir="Output dir (default models\whisper_large_v3_onnx): "
+if "%outdir%"=="" set outdir=models\whisper_large_v3_onnx
+python scripts\convert_whisper_to_onnx.py --model %mdl% --output-dir %outdir%
+pause
+goto MENU
+
+:RUNQNN
+echo.
+echo 🚀 Run ONNX QNN demo transcription
+set /p modeldir="Model dir (e.g. models\whisper_large_v3_onnx): "
+set /p audiofile="Audio wav file: "
+if "%modeldir%"=="" goto MENU
+if "%audiofile%"=="" goto MENU
+python scripts\transcribe_qnn.py --model-dir %modeldir% --audio %audiofile%
 pause
 goto MENU
 

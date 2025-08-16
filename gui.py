@@ -17,11 +17,17 @@ import json
 
 # Import our transcription engine
 try:
-    from transcribe import ARM64WhisperTranscriber
+    from transcribe_temp import ARM64WhisperTranscriber  # Use temporary version
     TRANSCRIBER_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️  Transcriber not available: {e}")
-    TRANSCRIBER_AVAILABLE = False
+    print("✅ Using temporary transcriber (Whisper placeholder mode)")
+except ImportError:
+    try:
+        from transcribe import ARM64WhisperTranscriber  # Fallback to original
+        TRANSCRIBER_AVAILABLE = True
+        print("✅ Using full transcriber")
+    except ImportError as e:
+        print(f"⚠️  Transcriber not available: {e}")
+        TRANSCRIBER_AVAILABLE = False
 
 class WhisperGUI:
     """
@@ -30,6 +36,7 @@ class WhisperGUI:
     
     def __init__(self, root: tk.Tk):
         """Initialize the GUI application."""
+        print("🎨 Initializing GUI components...")
         self.root = root
         self.transcriber = None
         self.progress_queue = queue.Queue()
@@ -37,9 +44,11 @@ class WhisperGUI:
         self.current_thread = None
         
         # Setup window
+        print("🏠 Setting up window...")
         self.setup_window()
         
         # Create interface
+        print("🧩 Creating widgets...")
         self.create_widgets()
         
         # Initialize transcriber if available
@@ -155,7 +164,7 @@ class WhisperGUI:
         
         # Model selection
         ttk.Label(options_frame, text="Whisper Model:").grid(row=0, column=0, sticky="w", padx=(0, 5))
-        self.model_var = tk.StringVar(value="base")
+        self.model_var = tk.StringVar(value="large")
         model_combo = ttk.Combobox(
             options_frame, 
             textvariable=self.model_var,
@@ -631,11 +640,16 @@ class WhisperGUI:
 
 def main():
     """Run the GUI application."""
+    print("🎨 Starting GUI application...")
+    
     # Create root window
     root = tk.Tk()
+    print("✅ Tkinter root window created")
     
     # Create application
+    print("🔧 Creating GUI application...")
     app = WhisperGUI(root)
+    print("✅ GUI application created")
     
     # Handle window closing
     def on_closing():
@@ -648,8 +662,10 @@ def main():
     root.protocol("WM_DELETE_WINDOW", on_closing)
     
     # Start the GUI
+    print("🚀 Starting GUI main loop...")
     try:
         root.mainloop()
+        print("✅ GUI main loop ended normally")
     except KeyboardInterrupt:
         print("\n🛑 Application interrupted by user")
         return 1

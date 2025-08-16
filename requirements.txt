@@ -7,6 +7,7 @@ onnxruntime-qnn>=1.22.0      # NPU provider for Qualcomm Snapdragon
 torch>=2.0.0                 # ARM64-compatible PyTorch
 torchaudio>=2.0.0            # Audio processing for PyTorch
 transformers>=4.30.0         # Hugging Face transformers
+sentencepiece>=0.1.99        # Tokenizer model for Whisper / HF
 numpy>=1.24.0                # Numerical computing
 
 # Audio/Video Processing
@@ -19,6 +20,8 @@ pydub>=0.25.0                # Audio manipulation
 python-docx>=1.1.0           # Microsoft Word document generation
 openpyxl>=3.1.0              # Excel file support (optional)
 markdown>=3.5.0              # Markdown processing
+onnx>=1.15.0                 # ONNX model utilities (export/simplify optional)
+onnxsim>=0.4.36              # ONNX simplification (optional)
 
 # GUI Framework (Built-in but list for reference)
 # tkinter - included with Python
