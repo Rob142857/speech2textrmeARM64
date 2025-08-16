@@ -1,0 +1,49 @@
+# ARM64 Whisper Transcription Requirements
+# Optimized for Windows ARM64 (Surface Laptop 7 Snapdragon X Elite)
+
+# Core AI and NPU Processing
+openai-whisper>=20231117
+onnxruntime-qnn>=1.22.0      # NPU provider for Qualcomm Snapdragon
+torch>=2.0.0                 # ARM64-compatible PyTorch
+torchaudio>=2.0.0            # Audio processing for PyTorch
+transformers>=4.30.0         # Hugging Face transformers
+numpy>=1.24.0                # Numerical computing
+
+# Audio/Video Processing
+ffmpeg-python>=0.2.0         # FFmpeg Python bindings
+librosa>=0.10.0              # Audio analysis
+soundfile>=0.12.0            # Audio file I/O
+pydub>=0.25.0                # Audio manipulation
+
+# Document Generation and Output
+python-docx>=1.1.0           # Microsoft Word document generation
+openpyxl>=3.1.0              # Excel file support (optional)
+markdown>=3.5.0              # Markdown processing
+
+# GUI Framework (Built-in but list for reference)
+# tkinter - included with Python
+
+# Utility Libraries
+pathlib>=1.0.1               # Path handling
+typing-extensions>=4.5.0     # Type hints
+dataclasses>=0.6             # Data structures
+configparser>=5.3.0          # Configuration management
+argparse>=1.1                # Command line parsing
+
+# Development and Debugging
+psutil>=5.9.0                # System monitoring
+tqdm>=4.65.0                 # Progress bars
+colorama>=0.4.6              # Colored terminal output
+
+# Optional: Enhanced Features
+nltk>=3.8.1                  # Natural language processing (punctuation/sentences)
+spacy>=3.6.0                 # Advanced NLP (optional, ARM64 support varies)
+regex>=2023.8.8              # Regular expressions
+
+# System Integration
+winrt>=2.0.0                 # Windows Runtime (ARM64 specific features)
+pywin32>=306                 # Windows API access
+
+# Note: All packages should be ARM64 compatible
+# Some packages may need to be installed from conda-forge for ARM64 support
+# Alternative installation via: conda install -c conda-forge <package>
